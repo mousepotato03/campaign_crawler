@@ -1,0 +1,13 @@
+# 환경 캠페인 크롤링 대상 URL 목록
+# URL만 추가하면 LLM이 알아서 판단하고 데이터 수집
+
+urls:
+  - https://kfem.or.kr/campaign
+  # 새 URL 추가 시 여기에 한 줄만 추가
+  # - https://example.com/campaign
+
+settings:
+  request_delay_seconds: 3
+  gemini_timeout: 180
+  max_depth: 5 # 목록 페이지에서 상세 페이지로 이동하는 최대 깊이
+  debug_mode: true # 디버그 로그 출력 (프롬프트, 응답, 파싱 결과)
