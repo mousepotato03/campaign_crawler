@@ -36,9 +36,6 @@ config/.env
 *.swp
 *.swo
 
-# Gemini
-.gemini/
-
 # OS
 .DS_Store
 Thumbs.db

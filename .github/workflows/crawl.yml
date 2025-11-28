@@ -1,0 +1,69 @@
+name: Periodic Crawler
+
+on:
+  schedule:
+    # 한국 시간 06:00 = UTC 21:00 (전날)
+    - cron: '0 21 * * *'
+  
+  # 수동으로도 실행할 수 있게 버튼 추가
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 저장소 코드 체크아웃
+        uses: actions/checkout@v3
+name: Periodic Crawler
+
+on:
+  schedule:
+    # 한국 시간 06:00 = UTC 21:00 (전날)
+    - cron: '0 21 * * *'
+  
+  # 수동으로도 실행할 수 있게 버튼 추가
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 저장소 코드 체크아웃
+        uses: actions/checkout@v3
+
+      - name: 파이썬 설정
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+
+      - name: 라이브러리 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          playwright install chromium
+          
+      - name: 크롤러 실행
+        id: crawler
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+        run: python main.py 
+
+      - name: 결과 메일 보내기
+        uses: dawidd6/action-send-mail@v3
+        if: steps.crawler.outputs.has_new_campaigns == 'true'
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "환경 캠페인 크롤러: 새로운 캠페인 ${{ steps.crawler.outputs.new_campaigns_count }}개 발견"
+          body: |
+            새로운 캠페인이 ${{ steps.crawler.outputs.new_campaigns_count }}개 발견되었습니다.
+            자세한 내용은 GitHub Actions 로그를 확인하세요.
+          to: ${{ secrets.MAIL_USERNAME }}
+          from: Github Action <${{ secrets.MAIL_USERNAME }}>

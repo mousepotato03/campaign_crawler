@@ -234,6 +234,14 @@ async def main():
     print(f"       새로 추가된 캠페인: {total_new}개")
     print("=" * 60 + "\n")
 
+    # GitHub Actions 연동: 결과 출력
+    github_output = os.environ.get('GITHUB_OUTPUT')
+    if github_output:
+        with open(github_output, 'a') as f:
+            f.write(f"new_campaigns_count={total_new}\n")
+            if total_new > 0:
+                f.write("has_new_campaigns=true\n")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
