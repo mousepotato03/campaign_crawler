@@ -73,14 +73,3 @@ class SupabaseService:
         except Exception as e:
             print(f"  [ERROR] 미션 템플릿 저장 실패: {e}")
             return None
-
-    def get_rpa_site_config(self, config_id: int) -> Optional[dict]:
-        """RPA 사이트 설정 조회"""
-        result = self.client.table("rpa_site_configs") \
-            .select("*") \
-            .eq("id", config_id) \
-            .execute()
-
-        if result.data:
-            return result.data[0]
-        return None

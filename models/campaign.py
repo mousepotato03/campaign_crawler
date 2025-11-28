@@ -17,10 +17,9 @@ class CampaignData:
     end_date: Optional[str] = None    # YYYY-MM-DD 형식 문자열
     region: Optional[str] = None
     status: str = "ACTIVE"
-    submission_type: str = "MANUAL_GUIDE"
+    submission_type: str = "MANUAL"
     category: Optional[str] = None
     campaign_type: str = "ONLINE"
-    rpa_site_config_id: Optional[int] = None
 
     def to_dict(self) -> dict:
         """Supabase INSERT용 딕셔너리 변환"""
@@ -36,8 +35,8 @@ class MissionTemplateData:
     title: str
     description: Optional[str] = None
     order: int = 0
-    verification_type: str = "IMAGE"  # IMAGE, QUIZ, TEXT_REVIEW, RPA_ACTION
-    reward_points: int = 10
+    verification_type: str = "IMAGE"  # IMAGE, QUIZ, TEXT_REVIEW
+    reward_points: int = 0
 
     def to_dict(self) -> dict:
         """Supabase INSERT용 딕셔너리 변환"""

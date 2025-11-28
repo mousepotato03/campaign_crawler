@@ -83,9 +83,11 @@ class GeminiRPAService:
                 return self._parse_json_response(stdout)
 
             except subprocess.TimeoutExpired:
-                process.kill()  # 프로세스 강제 종료
-                process.wait(timeout=5)  # 종료 대기
-                print(f"  [ERROR] Gemini CLI 타임아웃 ({self.timeout}초) - 프로세스 종료됨")
+                # 타임아웃 시 프로세스 트리 강제 종료 (Windows)
+                # shell=True로 실행된 경우 process.pid는 cmd.exe의 PID이므로
+                # /T 옵션을 사용하여 자식 프로세스(gemini, node, chrome 등)까지 모두 종료해야 함
+                subprocess.run(f"taskkill /F /T /PID {process.pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"  [ERROR] Gemini CLI 타임아웃 ({self.timeout}초) - 프로세스 트리 강제 종료됨")
                 return None
 
         except FileNotFoundError:
@@ -231,3 +233,42 @@ class GeminiRPAService:
 
         prompt = UNIFIED_EXTRACTION_PROMPT.format(url=url)
         return self.execute_prompt(prompt)
+
+    def extract_campaign_urls(self, url: str) -> List[str]:
+        """
+        1단계: 캠페인 목록 페이지에서 URL 추출 (Playwright MCP 사용)
+
+        Args:
+            url: 캠페인 목록 페이지 URL
+
+        Returns:
+            캠페인 URL 리스트
+        """
+        from prompts.list_extraction import LIST_EXTRACTION_PROMPT
+
+        prompt = LIST_EXTRACTION_PROMPT.format(url=url)
+        result = self.execute_prompt(prompt)
+
+        if result and "campaign_urls" in result:
+            return result["campaign_urls"]
+        return []
+
+    def close_browser(self) -> bool:
+        """
+        Playwright MCP의 browser_close 호출로 브라우저 종료
+
+        Returns:
+            성공 여부
+        """
+        prompt = """
+@playwright MCP의 browser_close 도구를 호출하여 열려있는 브라우저를 모두 종료하세요.
+완료되면 아래 JSON만 출력:
+```json
+{"status": "closed"}
+```
+"""
+        try:
+            self.execute_prompt(prompt)
+            return True
+        except Exception:
+            return False

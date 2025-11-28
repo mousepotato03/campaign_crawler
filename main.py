@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-환경 캠페인 크롤러 v2.0
+환경 캠페인 크롤러 v3.0
 
-URL만 추가하면 LLM(Gemini)이 Playwright MCP를 사용해
-직접 페이지를 탐색하고 환경 캠페인인지 판단하여 데이터를 수집합니다.
+2단계 분리 방식:
+  1단계: Playwright MCP로 캠페인 URL 추출 → DB 중복 체크
+  2단계: 새 URL마다 독립된 Gemini CLI 호출 (context 오염 방지) + browser_close
 
 사용법:
     python main.py
@@ -13,6 +14,7 @@ import os
 import sys
 import time
 import yaml
+from typing import Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -57,147 +59,87 @@ def create_default_missions(supabase: SupabaseService, campaign_id: int, campaig
         description="캠페인 참여 후 인증샷을 업로드하세요.",
         order=1,
         verification_type="IMAGE",
-        reward_points=10
+        reward_points=0
     )
     mission_id = supabase.insert_mission_template(default_mission)
     if mission_id:
         print(f"      [MISSION] 기본 미션 생성 (ID: {mission_id})")
 
 
-def process_url(url: str, gemini: GeminiRPAService, supabase: SupabaseService,
-                existing_urls: set, delay: int, depth: int = 0, max_depth: int = 2,
-                debug: bool = False) -> int:
+def save_campaign(result: dict, supabase: SupabaseService, existing_urls: set) -> int:
     """
-    단일 URL 처리 - LLM이 페이지를 분석하고 캠페인 정보 추출
+    캠페인 저장 (2단계에서 사용)
 
     Args:
-        url: 분석할 URL
-        gemini: Gemini RPA 서비스
+        result: Gemini 분석 결과
         supabase: Supabase 서비스
-        existing_urls: 이미 존재하는 캠페인 URL 집합
-        delay: 요청 간 딜레이 (초)
-        depth: 현재 탐색 깊이
-        max_depth: 최대 탐색 깊이
-        debug: 디버그 모드 활성화 여부
+        existing_urls: 기존 캠페인 URL 집합
 
     Returns:
-        새로 추가된 캠페인 수
+        저장된 캠페인 수
     """
-    indent = "  " * depth
-    print(f"\n{indent}[분석 중] {url}")
-
-    # 깊이 제한 확인
-    if depth >= max_depth:
-        print(f"{indent}  [SKIP] 최대 깊이 도달 (depth={depth})")
-        return 0
-
-    # 이미 처리된 URL 스킵
-    if url in existing_urls:
-        print(f"{indent}  [SKIP] 이미 존재하는 캠페인")
-        return 0
-
-    # 1. LLM이 페이지 분석 및 캠페인 추출
-    result = gemini.analyze_and_extract(url)
-
-    if not result:
-        print(f"{indent}  [FAIL] 페이지 분석 실패")
-        return 0
-
-    # 디버그: 분석 결과 요약 출력
-    if debug:
-        print(f"{indent}  [DEBUG-RESULT] page_type={result.get('page_type')}, "
-              f"is_env={result.get('is_environmental_campaign')}, "
-              f"campaigns={len(result.get('campaigns', []))}개")
-
-    # 2. 환경 캠페인 여부 확인
-    if not result.get("is_environmental_campaign", False):
-        print(f"{indent}  [SKIP] 환경 캠페인이 아님")
-        return 0
-
-    # 3. 페이지 타입에 따라 처리
-    page_type = result.get("page_type", "unknown")
+    saved_count = 0
     campaigns = result.get("campaigns", [])
 
-    print(f"{indent}  [INFO] 페이지 타입: {page_type}, 발견: {len(campaigns)}개")
+    for camp in campaigns:
+        campaign_url = camp.get("campaign_url")
 
-    new_count = 0
+        if not campaign_url:
+            continue
 
-    if page_type == "list":
-        # 목록 페이지: 각 캠페인 URL로 재귀 처리
-        for idx, camp in enumerate(campaigns, 1):
-            campaign_url = camp.get("campaign_url")
-            if not campaign_url:
-                continue
+        if campaign_url in existing_urls:
+            print(f"    [SKIP] 이미 존재: {camp.get('title', 'Unknown')[:30]}")
+            continue
 
-            print(f"{indent}  [{idx}/{len(campaigns)}] {camp.get('title', 'Unknown')[:40]}...")
-            time.sleep(delay)
+        # CampaignData 생성
+        campaign = CampaignData(
+            title=camp.get("title") or "Unknown",
+            campaign_url=campaign_url,
+            host_organizer=camp.get("host_organizer") or "Unknown",
+            description=camp.get("description"),
+            image_url=camp.get("image_url"),
+            start_date=camp.get("start_date"),
+            end_date=camp.get("end_date"),
+            region=camp.get("region"),
+            category=camp.get("category"),
+            campaign_type=camp.get("campaign_type") or "ONLINE"
+        )
 
-            new_count += process_url(
-                campaign_url, gemini, supabase, existing_urls,
-                delay, depth + 1, max_depth, debug
-            )
+        # DB 저장
+        campaign_id = supabase.insert_campaign(campaign)
+        if campaign_id:
+            existing_urls.add(campaign_url)
+            saved_count += 1
+            print(f"    [OK] 저장 완료: {campaign.title[:40]} (ID: {campaign_id})")
 
-    elif page_type == "detail":
-        # 상세 페이지: DB 저장
-        for camp in campaigns:
-            campaign_url = camp.get("campaign_url") or url
-
-            if campaign_url in existing_urls:
-                print(f"{indent}  [SKIP] 이미 존재: {camp.get('title', 'Unknown')[:30]}")
-                continue
-
-            # CampaignData 생성
-            campaign = CampaignData(
-                title=camp.get("title") or "Unknown",
-                campaign_url=campaign_url,
-                host_organizer=camp.get("host_organizer") or "Unknown",
-                description=camp.get("description"),
-                image_url=camp.get("image_url"),
-                start_date=camp.get("start_date"),
-                end_date=camp.get("end_date"),
-                region=camp.get("region"),
-                category=camp.get("category"),
-                campaign_type=camp.get("campaign_type") or "ONLINE"
-            )
-
-            # DB 저장
-            campaign_id = supabase.insert_campaign(campaign)
-            if campaign_id:
-                existing_urls.add(campaign_url)
-                new_count += 1
-                print(f"{indent}  [OK] 저장 완료: {campaign.title[:40]} (ID: {campaign_id})")
-
-                # 미션 템플릿 생성 (추출된 것 우선, 없으면 기본)
-                missions = camp.get("missions", [])
-                if missions:
-                    for idx, mission in enumerate(missions, 1):
-                        mission_data = MissionTemplateData(
-                            campaign_id=campaign_id,
-                            title=mission.get("title", f"{campaign.title} 미션 {idx}"),
-                            description=mission.get("description"),
-                            order=mission.get("order", idx),
-                            verification_type=mission.get("verification_type", "TEXT_REVIEW"),
-                            reward_points=10
-                        )
-                        mission_id = supabase.insert_mission_template(mission_data)
-                        if mission_id:
-                            print(f"      [MISSION] 미션 생성: {mission_data.title[:30]} (ID: {mission_id})")
-                else:
-                    create_default_missions(supabase, campaign_id, campaign.title)
+            # 미션 템플릿 생성 (추출된 것 우선, 없으면 기본)
+            missions = camp.get("missions", [])
+            if missions:
+                for idx, mission in enumerate(missions, 1):
+                    mission_data = MissionTemplateData(
+                        campaign_id=campaign_id,
+                        title=mission.get("title", f"{campaign.title} 미션 {idx}"),
+                        description=mission.get("description"),
+                        order=mission.get("order", idx),
+                        verification_type=mission.get("verification_type", "TEXT_REVIEW"),
+                        reward_points=10
+                    )
+                    mission_id = supabase.insert_mission_template(mission_data)
+                    if mission_id:
+                        print(f"      [MISSION] 미션 생성: {mission_data.title[:30]} (ID: {mission_id})")
             else:
-                print(f"{indent}  [FAIL] DB 저장 실패: {campaign.title[:40]}")
+                create_default_missions(supabase, campaign_id, campaign.title)
+        else:
+            print(f"    [FAIL] DB 저장 실패: {campaign.title[:40]}")
 
-    else:
-        print(f"{indent}  [WARN] 알 수 없는 페이지 타입: {page_type}")
-
-    return new_count
+    return saved_count
 
 
 def main():
-    """메인 실행 함수"""
+    """메인 실행 함수 - 2단계 분리 방식"""
     print("\n" + "=" * 60)
-    print("       환경 캠페인 크롤러 v2.0")
-    print("       LLM 자율 판단 + Playwright MCP")
+    print("       환경 캠페인 크롤러 v3.0")
+    print("       2단계 분리: URL 수집 → 상세 추출")
     print("=" * 60)
 
     # 1. 환경변수 및 설정 로드
@@ -207,16 +149,13 @@ def main():
     settings = config.get("settings", {})
     delay = settings.get("request_delay_seconds", 3)
     timeout = settings.get("gemini_timeout", 180)
-    max_depth = settings.get("max_depth", 2)
-
     debug_mode = settings.get("debug_mode", False)
 
     # 2. 서비스 초기화
     try:
         supabase = SupabaseService()
-        gemini = GeminiRPAService(timeout=timeout, debug=debug_mode)
     except ValueError as e:
-        print(f"\n[ERROR] 서비스 초기화 실패: {e}")
+        print(f"\n[ERROR] Supabase 서비스 초기화 실패: {e}")
         sys.exit(1)
 
     # 3. 기존 캠페인 URL 조회
@@ -231,26 +170,73 @@ def main():
         sys.exit(0)
 
     print(f"크롤링 대상 URL: {len(urls)}개")
-    print(f"설정: delay={delay}초, timeout={timeout}초, max_depth={max_depth}, debug={debug_mode}")
+    print(f"설정: delay={delay}초, timeout={timeout}초, debug={debug_mode}")
 
-    # 5. 각 URL 처리
+    # 5. 각 목록 URL 처리
     total_new = 0
-    for idx, url in enumerate(urls, 1):
+    for idx, list_url in enumerate(urls, 1):
         print(f"\n{'='*60}")
-        print(f"[{idx}/{len(urls)}] 시작: {url}")
+        print(f"[{idx}/{len(urls)}] 목록 페이지: {list_url}")
         print("=" * 60)
 
+        # ========== 1단계: URL 수집 ==========
+        print("\n[1단계] 캠페인 URL 수집 중...")
+
+        # Playwright MCP로 페이지 접근 및 URL 추출
         try:
-            new_count = process_url(
-                url, gemini, supabase, existing_urls,
-                delay, depth=0, max_depth=max_depth, debug=debug_mode
-            )
-            total_new += new_count
+            gemini = GeminiRPAService(timeout=timeout, debug=debug_mode)
+            campaign_urls = gemini.extract_campaign_urls(list_url)
+            gemini.close_browser()  # 1단계 브라우저 종료
         except Exception as e:
-            print(f"\n[ERROR] 처리 중 오류: {e}")
+            print(f"  [ERROR] URL 추출 실패: {e}")
             continue
 
-        # URL 간 딜레이
+        print(f"  발견된 URL: {len(campaign_urls)}개")
+
+        # DB 중복 체크 (top-down 순서 유지)
+        new_urls = [u for u in campaign_urls if u not in existing_urls]
+        skipped = len(campaign_urls) - len(new_urls)
+        print(f"  새 URL: {len(new_urls)}개 (기존 {skipped}개 스킵)")
+
+        if not new_urls:
+            print("  [INFO] 새 캠페인 없음, 다음 URL로 이동")
+            continue
+
+        # ========== 2단계: 상세 정보 추출 ==========
+        print(f"\n[2단계] 캠페인 상세 정보 추출...")
+
+        for url_idx, campaign_url in enumerate(new_urls, 1):
+            print(f"\n  [{url_idx}/{len(new_urls)}] {campaign_url}")
+
+            try:
+                # 매번 새 인스턴스 생성 (context 오염 방지)
+                gemini = GeminiRPAService(timeout=timeout, debug=debug_mode)
+
+                result = gemini.analyze_and_extract(campaign_url)
+
+                # 반드시 브라우저 종료
+                gemini.close_browser()
+
+                if not result:
+                    print(f"    [FAIL] 분석 실패")
+                    continue
+
+                if debug_mode:
+                    print(f"    [DEBUG] is_env={result.get('is_environmental_campaign')}, "
+                          f"campaigns={len(result.get('campaigns', []))}개")
+
+                if result.get("is_environmental_campaign"):
+                    saved = save_campaign(result, supabase, existing_urls)
+                    total_new += saved
+                else:
+                    print(f"    [SKIP] 환경 캠페인이 아님")
+
+            except Exception as e:
+                print(f"    [ERROR] 처리 실패: {e}")
+
+            time.sleep(delay)
+
+        # 목록 URL 간 딜레이
         if idx < len(urls):
             time.sleep(delay)
 
