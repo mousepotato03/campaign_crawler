@@ -31,7 +31,14 @@ def load_env():
     if env_path.exists():
         load_dotenv(env_path)
     else:
-        print("[WARN] config/.env 파일이 없습니다.")
+        print("[INFO] config/.env 파일이 없습니다. 환경변수를 확인합니다.")
+        
+    # 필수 환경변수 확인
+    required_vars = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "GOOGLE_API_KEY"]
+    missing = [var for var in required_vars if not os.environ.get(var)]
+    
+    if missing:
+        print(f"[ERROR] 필수 환경변수가 없습니다: {', '.join(missing)}")
         sys.exit(1)
 
 
