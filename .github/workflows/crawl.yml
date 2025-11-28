@@ -5,24 +5,7 @@ on:
     # 한국 시간 06:00 = UTC 21:00 (전날)
     - cron: '0 21 * * *'
   
-  # 수동으로도 실행할 수 있게 버튼 추가
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: 저장소 코드 체크아웃
-        uses: actions/checkout@v3
-name: Periodic Crawler
-
-on:
-  schedule:
-    # 한국 시간 06:00 = UTC 21:00 (전날)
-    - cron: '0 21 * * *'
-  
-  # 수동으로도 실행할 수 있게 버튼 추가
+  # 수동 실행 버튼
   workflow_dispatch:
 
 jobs:
@@ -55,6 +38,7 @@ jobs:
 
       - name: 결과 메일 보내기
         uses: dawidd6/action-send-mail@v3
+        # 파이썬에서 has_new_campaigns=true 라고 알려줬을 때만 실행
         if: steps.crawler.outputs.has_new_campaigns == 'true'
         with:
           server_address: smtp.gmail.com
