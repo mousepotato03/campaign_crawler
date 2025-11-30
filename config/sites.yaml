@@ -3,6 +3,7 @@
 
 urls:
   - https://kfem.or.kr/campaign
+  - https://www.1365.go.kr/vols/P9230/partcptn/grpCptn.do
   # 새 URL 추가 시 여기에 한 줄만 추가
   # - https://example.com/campaign
 
