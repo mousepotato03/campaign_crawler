@@ -58,7 +58,18 @@ class BrowserService:
             return content
             
         except Exception as e:
-            print(f"[Browser] Error fetching {url}: {e}")
+            error_msg = str(e)
+            # SSL 인증서 관련 에러 처리
+            if "ERR_CERT" in error_msg:
+                print(f"[Browser] SSL 인증서 오류로 스킵: {url}")
+            elif "ERR_CONNECTION_REFUSED" in error_msg:
+                print(f"[Browser] 연결 거부됨: {url}")
+            elif "ERR_NAME_NOT_RESOLVED" in error_msg:
+                print(f"[Browser] 도메인 찾을 수 없음: {url}")
+            elif "Timeout" in error_msg:
+                print(f"[Browser] 타임아웃: {url}")
+            else:
+                print(f"[Browser] Error fetching {url}: {e}")
             return ""
             
         finally:

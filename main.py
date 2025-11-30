@@ -125,7 +125,7 @@ async def process_detail_page(url: str, browser: BrowserService, llm: LLMService
     # 1. HTML 추출
     html_content = await browser.get_page_content(url)
     if not html_content:
-        print(f"  [FAIL] HTML 추출 실패: {url}")
+        # browser_service에서 이미 에러 메시지 출력됨
         return 0
 
     # 2. LLM 분석
