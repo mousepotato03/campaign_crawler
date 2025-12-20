@@ -83,7 +83,7 @@ UNIFIED_EXTRACTION_PROMPT = """
 1. 환경 캠페인이 아니면 is_environmental_campaign: false로 설정하고 campaigns는 빈 배열
 2. 해당 캠페인의 모든 정보를 campaigns[0]에 담기
 3. URL은 반드시 절대 경로로 변환 (https://로 시작)
-4. 날짜는 반드시 YYYY-MM-DD 형식
+4. 날짜는 반드시 시작일과 종료일을 기입해야함. YYYY-MM-DD 형식
 5. 정보가 없는 필드는 null로 설정
 6. JSON 외의 다른 텍스트 출력 금지
 7. 미션이 명시되어 있지 않으면 missions는 빈 배열 []로 설정
